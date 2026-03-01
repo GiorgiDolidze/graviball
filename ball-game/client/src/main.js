@@ -1,5 +1,4 @@
 // client/src/main.js
-// Entry point: wires renderer, state, socket, loop.
 
 import { Renderer } from "./core/renderer.js";
 import { GameLoop } from "./core/gameLoop.js";
@@ -14,11 +13,7 @@ import { TimerUI } from "./ui/timer.js";
 
 import { WS_URL, NETWORK } from "./config/constants.js";
 
-// --- Setup ---
-
 const canvas = document.getElementById("game");
-
-// Prevent touch gestures from hijacking gameplay on mobile
 canvas.style.touchAction = "none";
 
 const renderer = new Renderer(canvas);
@@ -26,23 +21,13 @@ const state = new ClientState();
 const world = new World(state);
 const timerUI = new TimerUI();
 
-// --- Socket ---
-
 const socket = new GameSocket(WS_URL, {
-  open: () => {
-    console.log("Connected to server");
-  },
-  message: (data) => {
-    handleServerMessage(state, data);
-  },
-  close: () => {
-    console.log("Disconnected from server");
-  }
+  open: () => console.log("Connected to server"),
+  message: (data) => handleServerMessage(state, data),
+  close: () => console.log("Disconnected from server")
 });
 
 socket.connect();
-
-// --- Input helpers ---
 
 function getPointerScreenXY(e) {
   const rect = canvas.getBoundingClientRect();
@@ -52,54 +37,55 @@ function getPointerScreenXY(e) {
 }
 
 /**
- * IMPORTANT FIX:
- * Use the authoritative world size coming from the server snapshot to map pointer position.
- * This removes DPI/scale/transform mismatch that makes desktop feel weak.
+ * Correct mapping with letterboxing:
+ * world fits into rect with offsets; we must subtract offsets before scaling.
  */
-function updateLocalCursorFromEvent(e) {
+function pointerToWorld(e) {
   const { sx, sy, rect } = getPointerScreenXY(e);
 
   const w = state.world?.width;
   const h = state.world?.height;
 
-  let wx, wy;
-
+  // If we don't have world yet, fallback to old behavior
   if (
-    typeof w === "number" &&
-    typeof h === "number" &&
-    Number.isFinite(w) &&
-    Number.isFinite(h) &&
-    rect.width > 0 &&
-    rect.height > 0
+    !(typeof w === "number" && typeof h === "number" && Number.isFinite(w) && Number.isFinite(h)) ||
+    rect.width <= 0 ||
+    rect.height <= 0
   ) {
-    wx = (sx / rect.width) * w;
-    wy = (sy / rect.height) * h;
-  } else {
-    // Fallback if world not received yet
-    const p = renderer.screenToWorld(sx, sy);
-    wx = p.x;
-    wy = p.y;
+    // fallback: proportional mapping (best-effort)
+    return { wx: sx, wy: sy };
   }
 
+  const scale = Math.min(rect.width / w, rect.height / h);
+  const offX = (rect.width - w * scale) / 2;
+  const offY = (rect.height - h * scale) / 2;
+
+  const wx = (sx - offX) / scale;
+  const wy = (sy - offY) / scale;
+
+  // Clamp into world bounds so moving in black letterbox bars doesn't go crazy
+  const cx = Math.max(0, Math.min(w, wx));
+  const cy = Math.max(0, Math.min(h, wy));
+
+  return { wx: cx, wy: cy };
+}
+
+function updateLocalCursorFromEvent(e) {
+  const { wx, wy } = pointerToWorld(e);
   state.localCursor.x = wx;
   state.localCursor.y = wy;
-
   return { wx, wy };
 }
 
 function sendCursorWorld(x, y) {
   socket.send(CLIENT_EVENTS.CURSOR_MOVE, { x, y });
 }
-
 function sendPushStart(x, y) {
   socket.send(CLIENT_EVENTS.PUSH_START, { x, y });
 }
-
 function sendPushEnd(x, y) {
   socket.send(CLIENT_EVENTS.PUSH_END, { x, y });
 }
-
-// --- Pointer events ---
 
 window.addEventListener(
   "pointermove",
@@ -110,21 +96,15 @@ window.addEventListener(
   { passive: true }
 );
 
-// Clicking/tapping should do something even if you don’t move the pointer
 window.addEventListener(
   "pointerdown",
   (e) => {
-    // Capture so we reliably get pointerup even if pointer leaves canvas
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (_) {}
 
     const { wx, wy } = updateLocalCursorFromEvent(e);
-
-    // Ensure server knows where you are even on taps with zero movement
     sendCursorWorld(wx, wy);
-
-    // Start "active pushing"
     sendPushStart(wx, wy);
   },
   { passive: true }
@@ -156,13 +136,9 @@ window.addEventListener(
   { passive: true }
 );
 
-// --- Loop ---
-
 const loop = new GameLoop(
   () => {
     applyInterpolation(state, NETWORK.INTERPOLATION_ALPHA);
-
-    // Update both current time and record time
     timerUI.update(state.sessionTime, state.bestTime);
   },
   () => {
