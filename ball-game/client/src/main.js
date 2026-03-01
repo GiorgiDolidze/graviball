@@ -57,7 +57,6 @@ window.addEventListener(
     const { sx, sy } = getPointerScreenXY(e);
 
     // Convert screen -> world using the most recently computed transform.
-    // (Transform is computed each render based on world size; defaults still work.)
     const { x: wx, y: wy } = renderer.screenToWorld(sx, sy);
 
     // Store local cursor in WORLD coords so it matches everyone else
@@ -74,10 +73,11 @@ window.addEventListener(
 const loop = new GameLoop(
   (delta) => {
     applyInterpolation(state, NETWORK.INTERPOLATION_ALPHA);
-    timerUI.update(state.sessionTime);
+
+    // ✅ update both current time and record time
+    timerUI.update(state.sessionTime, state.bestTime);
   },
   () => {
-    // Pass world size if present (we’ll add state.world soon)
     renderer.render(world.getRenderData(), state.world || null);
   }
 );
