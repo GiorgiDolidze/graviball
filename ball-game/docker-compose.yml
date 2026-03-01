@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  server:
+    build:
+      context: ./server
+    container_name: graviball-server
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - TICK_RATE=60
+      - BROADCAST_RATE=30
+    volumes:
+      - ./server:/app
+    working_dir: /app
+    command: npm run dev
