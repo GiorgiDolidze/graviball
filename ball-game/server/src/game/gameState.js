@@ -1,28 +1,32 @@
 // server/src/game/gameState.js
-// Holds authoritative world state.
+// Authoritative server game state.
 
 export function createGameState() {
-  const width = 800;
-  const height = 600;
+  const WORLD_WIDTH = 800;
+  const WORLD_HEIGHT = 600;
 
-  return {
+  const state = {
     world: {
-      width,
-      height,
-      abyssY: height * 0.8
+      width: WORLD_WIDTH,
+      height: WORLD_HEIGHT,
+      abyssY: WORLD_HEIGHT - 40
     },
 
     ball: {
-      x: width / 2,
-      y: height / 3,
+      x: WORLD_WIDTH / 2,
+      y: WORLD_HEIGHT / 3,
       r: 18,
       vx: 0,
       vy: 0
     },
 
-    players: new Map(), // id -> { x, y }
+    players: new Map(),
 
     sessionTime: 0,
-    lastBelowAbyssAt: null
+
+    // ✅ NEW: record time (seconds)
+    bestTime: 0
   };
+
+  return state;
 }
