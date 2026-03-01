@@ -17,6 +17,10 @@ import { WS_URL, NETWORK } from "./config/constants.js";
 // --- Setup ---
 
 const canvas = document.getElementById("game");
+
+// Prevent touch gestures from hijacking gameplay on mobile
+canvas.style.touchAction = "none";
+
 const renderer = new Renderer(canvas);
 const state = new ClientState();
 const world = new World(state);
@@ -38,11 +42,7 @@ const socket = new GameSocket(WS_URL, {
 
 socket.connect();
 
-// --- Input ---
-
-function sendCursorWorld(x, y) {
-  socket.send(CLIENT_EVENTS.CURSOR_MOVE, { x, y });
-}
+// --- Input helpers ---
 
 function getPointerScreenXY(e) {
   const rect = canvas.getBoundingClientRect();
@@ -51,19 +51,84 @@ function getPointerScreenXY(e) {
   return { sx, sy };
 }
 
+function updateLocalCursorFromEvent(e) {
+  const { sx, sy } = getPointerScreenXY(e);
+
+  // Convert screen -> world using the most recently computed transform.
+  const { x: wx, y: wy } = renderer.screenToWorld(sx, sy);
+
+  // Store local cursor in WORLD coords so it matches everyone else
+  state.localCursor.x = wx;
+  state.localCursor.y = wy;
+
+  return { wx, wy };
+}
+
+function sendCursorWorld(x, y) {
+  socket.send(CLIENT_EVENTS.CURSOR_MOVE, { x, y });
+}
+
+function sendPushStart(x, y) {
+  socket.send(CLIENT_EVENTS.PUSH_START, { x, y });
+}
+
+function sendPushEnd(x, y) {
+  socket.send(CLIENT_EVENTS.PUSH_END, { x, y });
+}
+
+// --- Pointer events ---
+
 window.addEventListener(
   "pointermove",
   (e) => {
-    const { sx, sy } = getPointerScreenXY(e);
-
-    // Convert screen -> world using the most recently computed transform.
-    const { x: wx, y: wy } = renderer.screenToWorld(sx, sy);
-
-    // Store local cursor in WORLD coords so it matches everyone else
-    state.localCursor.x = wx;
-    state.localCursor.y = wy;
-
+    const { wx, wy } = updateLocalCursorFromEvent(e);
     sendCursorWorld(wx, wy);
+  },
+  { passive: true }
+);
+
+// Clicking/tapping should *do something* even if you don’t move the pointer
+window.addEventListener(
+  "pointerdown",
+  (e) => {
+    // capture so we reliably get pointerup even if pointer leaves canvas
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch (_) {}
+
+    const { wx, wy } = updateLocalCursorFromEvent(e);
+
+    // Ensure server knows where you are even on taps with zero movement
+    sendCursorWorld(wx, wy);
+
+    // Start "active pushing"
+    sendPushStart(wx, wy);
+  },
+  { passive: true }
+);
+
+window.addEventListener(
+  "pointerup",
+  (e) => {
+    const { wx, wy } = updateLocalCursorFromEvent(e);
+    sendPushEnd(wx, wy);
+
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  },
+  { passive: true }
+);
+
+window.addEventListener(
+  "pointercancel",
+  (e) => {
+    const { wx, wy } = updateLocalCursorFromEvent(e);
+    sendPushEnd(wx, wy);
+
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch (_) {}
   },
   { passive: true }
 );
@@ -71,7 +136,7 @@ window.addEventListener(
 // --- Loop ---
 
 const loop = new GameLoop(
-  (delta) => {
+  () => {
     applyInterpolation(state, NETWORK.INTERPOLATION_ALPHA);
 
     // ✅ update both current time and record time
