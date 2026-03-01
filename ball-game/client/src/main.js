@@ -48,16 +48,39 @@ function getPointerScreenXY(e) {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
-  return { sx, sy };
+  return { sx, sy, rect };
 }
 
+/**
+ * IMPORTANT FIX:
+ * Use the authoritative world size coming from the server snapshot to map pointer position.
+ * This removes DPI/scale/transform mismatch that makes desktop feel weak.
+ */
 function updateLocalCursorFromEvent(e) {
-  const { sx, sy } = getPointerScreenXY(e);
+  const { sx, sy, rect } = getPointerScreenXY(e);
 
-  // Convert screen -> world using the most recently computed transform.
-  const { x: wx, y: wy } = renderer.screenToWorld(sx, sy);
+  const w = state.world?.width;
+  const h = state.world?.height;
 
-  // Store local cursor in WORLD coords so it matches everyone else
+  let wx, wy;
+
+  if (
+    typeof w === "number" &&
+    typeof h === "number" &&
+    Number.isFinite(w) &&
+    Number.isFinite(h) &&
+    rect.width > 0 &&
+    rect.height > 0
+  ) {
+    wx = (sx / rect.width) * w;
+    wy = (sy / rect.height) * h;
+  } else {
+    // Fallback if world not received yet
+    const p = renderer.screenToWorld(sx, sy);
+    wx = p.x;
+    wy = p.y;
+  }
+
   state.localCursor.x = wx;
   state.localCursor.y = wy;
 
@@ -87,11 +110,11 @@ window.addEventListener(
   { passive: true }
 );
 
-// Clicking/tapping should *do something* even if you don’t move the pointer
+// Clicking/tapping should do something even if you don’t move the pointer
 window.addEventListener(
   "pointerdown",
   (e) => {
-    // capture so we reliably get pointerup even if pointer leaves canvas
+    // Capture so we reliably get pointerup even if pointer leaves canvas
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (_) {}
@@ -139,7 +162,7 @@ const loop = new GameLoop(
   () => {
     applyInterpolation(state, NETWORK.INTERPOLATION_ALPHA);
 
-    // ✅ update both current time and record time
+    // Update both current time and record time
     timerUI.update(state.sessionTime, state.bestTime);
   },
   () => {
