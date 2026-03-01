@@ -4,6 +4,7 @@
 export function createBroadcaster({ connections }) {
   function broadcastState(state) {
     const snapshot = buildSnapshot(state);
+
     const message = JSON.stringify({
       type: "state_snapshot",
       payload: snapshot
@@ -39,6 +40,13 @@ export function createBroadcaster({ connections }) {
     }
 
     return {
+      // ✅ authoritative world size for responsive scaling
+      world: {
+        width: state.world.width,
+        height: state.world.height,
+        abyssY: state.world.abyssY
+      },
+
       ball: {
         x: state.ball.x,
         y: state.ball.y,
@@ -46,8 +54,14 @@ export function createBroadcaster({ connections }) {
         vx: state.ball.vx,
         vy: state.ball.vy
       },
+
       cursors,
-      abyssY: state.world.abyssY
+
+      // ✅ backward compatibility (older clients might read this)
+      abyssY: state.world.abyssY,
+
+      // ✅ record time (seconds)
+      bestTime: typeof state.bestTime === "number" ? state.bestTime : 0
     };
   }
 
