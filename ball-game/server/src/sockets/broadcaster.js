@@ -1,6 +1,11 @@
 // server/src/sockets/broadcaster.js
 // Broadcasts authoritative state to all connected clients.
 
+function isSocketOpen(ws) {
+  // ws library uses readyState === 1 for OPEN reliably
+  return ws && ws.readyState === 1;
+}
+
 export function createBroadcaster({ connections }) {
   function broadcastState(state) {
     const snapshot = buildSnapshot(state);
@@ -11,9 +16,7 @@ export function createBroadcaster({ connections }) {
     });
 
     for (const [, ws] of connections) {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(message);
-      }
+      if (isSocketOpen(ws)) ws.send(message);
     }
 
     // Send session time separately (lightweight)
@@ -23,9 +26,7 @@ export function createBroadcaster({ connections }) {
     });
 
     for (const [, ws] of connections) {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(timeMessage);
-      }
+      if (isSocketOpen(ws)) ws.send(timeMessage);
     }
   }
 
@@ -33,14 +34,12 @@ export function createBroadcaster({ connections }) {
     const cursors = [];
 
     for (const [, player] of state.players) {
-      cursors.push({
-        x: player.x,
-        y: player.y
-      });
+      // only broadcast valid numbers
+      if (!Number.isFinite(player.x) || !Number.isFinite(player.y)) continue;
+      cursors.push({ x: player.x, y: player.y });
     }
 
     return {
-      // ✅ authoritative world size for responsive scaling
       world: {
         width: state.world.width,
         height: state.world.height,
@@ -57,15 +56,11 @@ export function createBroadcaster({ connections }) {
 
       cursors,
 
-      // ✅ backward compatibility (older clients might read this)
       abyssY: state.world.abyssY,
 
-      // ✅ record time (seconds)
       bestTime: typeof state.bestTime === "number" ? state.bestTime : 0
     };
   }
 
-  return {
-    broadcastState
-  };
+  return { broadcastState };
 }
