@@ -40,20 +40,34 @@ socket.connect();
 
 // --- Input ---
 
-function sendCursor(x, y) {
+function sendCursorWorld(x, y) {
   socket.send(CLIENT_EVENTS.CURSOR_MOVE, { x, y });
 }
 
-window.addEventListener("pointermove", (e) => {
+function getPointerScreenXY(e) {
   const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  return { sx, sy };
+}
 
-  state.localCursor.x = x;
-  state.localCursor.y = y;
+window.addEventListener(
+  "pointermove",
+  (e) => {
+    const { sx, sy } = getPointerScreenXY(e);
 
-  sendCursor(x, y);
-});
+    // Convert screen -> world using the most recently computed transform.
+    // (Transform is computed each render based on world size; defaults still work.)
+    const { x: wx, y: wy } = renderer.screenToWorld(sx, sy);
+
+    // Store local cursor in WORLD coords so it matches everyone else
+    state.localCursor.x = wx;
+    state.localCursor.y = wy;
+
+    sendCursorWorld(wx, wy);
+  },
+  { passive: true }
+);
 
 // --- Loop ---
 
@@ -63,7 +77,8 @@ const loop = new GameLoop(
     timerUI.update(state.sessionTime);
   },
   () => {
-    renderer.render(world.getRenderData());
+    // Pass world size if present (we’ll add state.world soon)
+    renderer.render(world.getRenderData(), state.world || null);
   }
 );
 
