@@ -59,9 +59,7 @@ export function stepPhysics(state, dt) {
   if (ball.y - ball.r > world.abyssY) {
     if (!state.lastBelowAbyssAt) {
       state.lastBelowAbyssAt = state.sessionTime;
-    } else if (
-      state.sessionTime - state.lastBelowAbyssAt > ABYSS_CONFIRM_DELAY
-    ) {
+    } else if (state.sessionTime - state.lastBelowAbyssAt > ABYSS_CONFIRM_DELAY) {
       resetBall(state);
     }
   } else {
@@ -75,11 +73,18 @@ export function stepPhysics(state, dt) {
 function resetBall(state) {
   const { ball, world } = state;
 
+  // ✅ Update record before we zero-out the session timer
+  const current = typeof state.sessionTime === "number" ? state.sessionTime : 0;
+  const best = typeof state.bestTime === "number" ? state.bestTime : 0;
+  state.bestTime = Math.max(best, current);
+
+  // Reset ball
   ball.x = world.width / 2;
   ball.y = world.height / 3;
   ball.vx = 0;
   ball.vy = 0;
 
+  // Reset round timer + abyss tracking
   state.sessionTime = 0;
   state.lastBelowAbyssAt = null;
 }
