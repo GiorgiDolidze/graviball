@@ -2,7 +2,7 @@
 // Visual + network-related constants for client.
 // Authoritative physics values live on the server.
 
-export const WS_URL = "wss://your-render-app.onrender.com"; 
+export const WS_URL = "wss://graviball.onrender.com"; 
 // Replace with your actual Render WebSocket URL before production.
 
 export const RENDER = {
