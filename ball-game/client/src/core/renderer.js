@@ -1,6 +1,6 @@
 // client/src/core/renderer.js
 // Renders the world on a black background with white elements.
-// Supports mapping a fixed "world" (server space) onto any screen size.
+// Fits a fixed "world" (server space) into any screen size (letterboxed).
 
 export class Renderer {
   constructor(canvas) {
@@ -10,12 +10,12 @@ export class Renderer {
     this.width = 0;
     this.height = 0;
 
-    // current world->screen transform
+    // world -> screen transform
     this.scale = 1;
     this.offsetX = 0;
     this.offsetY = 0;
 
-    this.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1)); // cap DPR for perf
+    this.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
     this.resize();
     window.addEventListener("resize", () => this.resize(), { passive: true });
@@ -34,9 +34,6 @@ export class Renderer {
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
-  /**
-   * Compute transform that fits world into screen while preserving aspect ratio (letterbox).
-   */
   computeWorldTransform(worldW, worldH) {
     const sx = this.width / worldW;
     const sy = this.height / worldH;
@@ -54,7 +51,6 @@ export class Renderer {
   clear() {
     const ctx = this.ctx;
     ctx.save();
-    // Clear in CSS pixel space
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, this.width, this.height);
@@ -78,7 +74,7 @@ export class Renderer {
     const x = c.x;
     const y = c.y;
 
-    const s = 6; // size in world units (scaled by transform)
+    const s = 6; // world units
 
     ctx.strokeStyle = "rgba(255,255,255,0.55)";
     ctx.lineWidth = 1 / this.scale;
@@ -96,53 +92,62 @@ export class Renderer {
     for (const c of cursors) this.drawCursor(c);
   }
 
-  /**
-   * Draw abyss line + labels in WORLD space.
-   * Styling is kept minimal, but text sizes are specified in screen pixels via 1/scale conversion.
-   */
+  // Abyss line: red, "ABYSS" at beginning (not crossed), instruction above centered.
   drawAbyssLine(y, worldWidth) {
     if (!Number.isFinite(y)) return;
     const ctx = this.ctx;
 
     const RED = "rgba(255,60,60,0.78)";
 
-    // 1px line regardless of scaling
+    // 1px line regardless of zoom
     ctx.strokeStyle = RED;
     ctx.lineWidth = 1 / this.scale;
 
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(worldWidth, y);
-    ctx.stroke();
-
-    // Text sizing in "screen px"
-    const fontPx = 11; // small
+    // Font size in screen px -> convert to world units
+    const fontPx = 11;
     const fontWorld = fontPx / this.scale;
 
     const padPx = 10;
     const padWorld = padPx / this.scale;
 
-    // "ABYSS------" at the beginning of the line (on the line)
+    // Draw "ABYSS" ON the line start, but make the line start AFTER the word.
+    ctx.save();
     ctx.fillStyle = RED;
     ctx.font = `${fontWorld}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText("ABYSS------", padWorld, y);
 
-    // Instruction above line, centered
+    const label = "ABYSS";
+    ctx.fillText(label, padWorld, y);
+
+    // Measure label width (in world units because our font is in world units)
+    const labelWidthWorld = ctx.measureText(label).width;
+
+    // Start the line after: padding + label + small gap
+    const gapPx = 10;
+    const gapWorld = gapPx / this.scale;
+
+    const lineStartX = padWorld + labelWidthWorld + gapWorld;
+
+    ctx.beginPath();
+    ctx.moveTo(lineStartX, y);
+    ctx.lineTo(worldWidth, y);
+    ctx.stroke();
+    ctx.restore();
+
+    // Instruction above the line, centered
+    ctx.fillStyle = RED;
+    ctx.font = `${fontWorld}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
+
     const instruction = "Resist gravity. Move to guide. Hold to lift.";
     const abovePx = 6;
     const aboveWorld = abovePx / this.scale;
+
     ctx.fillText(instruction, worldWidth / 2, y - aboveWorld);
   }
 
-  /**
-   * Render the frame.
-   * @param {{ball:any, cursors:any[], abyssY:number}} data
-   * @param {{width:number, height:number}|null} world Optional world size from server.
-   */
   render(data, world = null) {
     this.clear();
 
@@ -153,6 +158,9 @@ export class Renderer {
 
     const ctx = this.ctx;
     ctx.save();
+
+    // Ensure we are in CSS pixel space
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     // Apply world -> screen transform
     ctx.translate(this.offsetX, this.offsetY);
