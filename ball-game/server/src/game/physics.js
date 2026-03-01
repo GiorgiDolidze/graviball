@@ -1,32 +1,35 @@
 // server/src/game/physics.js
 // Authoritative physics + push logic.
 
-const GRAVITY = 520; // px/sec^2 (was 900)
+const GRAVITY = 420; // was 520
 
-const PUSH_RADIUS = 52; // was 14 (too tiny to feel responsive)
-const BASE_PUSH_FORCE = 520; // baseline “hover/deflect” force
-const PUSHING_FORCE_MULTIPLIER = 2.2; // extra force when user is actively pushing (mouse down / touch hold)
+const PUSH_RADIUS = 72; // was 52
+const BASE_PUSH_FORCE = 900; // was 520
+const PUSHING_FORCE_MULTIPLIER = 3.2; // was 2.2 (active push should feel strong)
 
-const DOWNWARD_MULTIPLIER = 0.65; // was 0.4 (too punishing when cursor is below ball)
+const DOWNWARD_MULTIPLIER = 0.95; // was 0.65 (don't punish pushing from below much)
+
 const ABYSS_CONFIRM_DELAY = 0.8; // seconds
 
-const MAX_FALL_SPEED = 950; // px/sec cap so game stays playable
-const AIR_DRAG = 0.85; // per second drag (higher = more drag). Applied smoothly via dt.
+const MAX_FALL_SPEED = 820; // was 950
+const AIR_DRAG = 0.65; // was 0.85 (less drag loss so pushes translate better)
+
+// Extra upward lift while actively pushing near the ball.
+// This is the “you can actually keep it up” component.
+const PUSH_LIFT = 680; // px/sec^2 upward bonus (applied only when pushing and close)
 
 export function stepPhysics(state, dt) {
   const { ball, players, world } = state;
 
-  // Safety guard
-  if (!dt || dt <= 0) {
-    state.sessionTime += 0;
-    return;
-  }
+  if (!dt || dt <= 0) return;
 
-  // --- Apply gravity ---
+  // --- Gravity ---
   ball.vy += GRAVITY * dt;
 
   // --- Player push forces ---
   for (const [, player] of players) {
+    if (!Number.isFinite(player?.x) || !Number.isFinite(player?.y)) continue;
+
     const dx = ball.x - player.x;
     const dy = ball.y - player.y;
     const distSq = dx * dx + dy * dy;
@@ -39,34 +42,42 @@ export function stepPhysics(state, dt) {
       const nx = dx / dist;
       const ny = dy / dist;
 
-      // Backward-compatible:
-      // - old clients don’t send pushing, so treat "undefined" as true (push still works).
-      // - once we add click/hold, pushing=false will reduce force.
+      // Backward compatible:
+      // - old clients: pushing undefined -> treated as true (push works)
+      // - new clients: pushing true only when pointer is down
       const pushing = player.pushing === undefined ? true : !!player.pushing;
 
-      let force = BASE_PUSH_FORCE * (pushing ? PUSHING_FORCE_MULTIPLIER : 0.55);
+      // Closeness 0..1
+      const closeness = 1 - dist / radius;
 
-      // Distance falloff: stronger when closer, softer when near edge of radius
-      const closeness = 1 - dist / radius; // 0..1
-      force *= 0.35 + 0.65 * closeness;
+      // Base force with falloff
+      let force = BASE_PUSH_FORCE * (0.25 + 0.75 * closeness);
 
-      // Downward dampening (cursor below ball): don’t kill it, just reduce a bit
-      if (ny > 0) {
-        force *= DOWNWARD_MULTIPLIER;
-      }
+      // Active push is much stronger
+      if (pushing) force *= PUSHING_FORCE_MULTIPLIER;
+      else force *= 0.65;
+
+      // If cursor is below the ball, don't kill the force—just reduce a little.
+      if (ny > 0) force *= DOWNWARD_MULTIPLIER;
 
       ball.vx += nx * force * dt;
       ball.vy += ny * force * dt;
+
+      // Bonus lift when actively pushing and close enough:
+      // This is what makes “holding” actually fight gravity.
+      if (pushing) {
+        const lift = PUSH_LIFT * (0.2 + 0.8 * closeness); // stronger when closer
+        ball.vy -= lift * dt; // subtract = upward
+      }
     }
   }
 
-  // --- Air drag (smooths motion) ---
-  // Convert per-second drag constant into dt-scaled multiplier
+  // --- Air drag (dt-scaled) ---
   const drag = Math.max(0, 1 - AIR_DRAG * dt);
   ball.vx *= drag;
   ball.vy *= drag;
 
-  // --- Clamp fall speed ---
+  // --- Clamp speed ---
   if (ball.vy > MAX_FALL_SPEED) ball.vy = MAX_FALL_SPEED;
   if (ball.vy < -MAX_FALL_SPEED) ball.vy = -MAX_FALL_SPEED;
 
@@ -74,7 +85,7 @@ export function stepPhysics(state, dt) {
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
 
-  // --- Simple bounds (left/right walls) ---
+  // --- Walls ---
   if (ball.x - ball.r < 0) {
     ball.x = ball.r;
     ball.vx *= -0.6;
@@ -84,10 +95,10 @@ export function stepPhysics(state, dt) {
     ball.vx *= -0.6;
   }
 
-  // --- Danger zone bias ---
+  // --- Danger zone bias (lighter) ---
   const dangerStart = world.height * 0.8;
   if (ball.y > dangerStart) {
-    ball.vy -= 240 * dt; // slightly gentler than before
+    ball.vy -= 170 * dt;
   }
 
   // --- Abyss check ---
@@ -101,25 +112,21 @@ export function stepPhysics(state, dt) {
     state.lastBelowAbyssAt = null;
   }
 
-  // --- Session time ---
   state.sessionTime += dt;
 }
 
 function resetBall(state) {
   const { ball, world } = state;
 
-  // ✅ Update record before we zero-out the session timer
   const current = typeof state.sessionTime === "number" ? state.sessionTime : 0;
   const best = typeof state.bestTime === "number" ? state.bestTime : 0;
   state.bestTime = Math.max(best, current);
 
-  // Reset ball
   ball.x = world.width / 2;
   ball.y = world.height / 3;
   ball.vx = 0;
   ball.vy = 0;
 
-  // Reset round timer + abyss tracking
   state.sessionTime = 0;
   state.lastBelowAbyssAt = null;
 }
