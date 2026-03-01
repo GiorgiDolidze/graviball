@@ -13,6 +13,11 @@ export function handleServerMessage(state, data) {
       break;
 
     case SERVER_EVENTS.STATE_SNAPSHOT:
+      // NEW: authoritative world size (for responsive scaling)
+      if (payload.world && typeof payload.world === "object") {
+        state.setWorld(payload.world);
+      }
+
       if (payload.ball) {
         state.setServerBall(payload.ball);
       }
@@ -21,8 +26,14 @@ export function handleServerMessage(state, data) {
         state.setCursors(payload.cursors);
       }
 
+      // Back-compat: some servers may still send abyssY at top-level
       if (typeof payload.abyssY === "number") {
         state.setAbyssY(payload.abyssY);
+      }
+
+      // NEW: record/best time (seconds)
+      if (typeof payload.bestTime === "number") {
+        state.updateBestTime(payload.bestTime);
       }
 
       break;
