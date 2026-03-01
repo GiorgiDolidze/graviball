@@ -35,66 +35,52 @@ export class Renderer {
   }
 
   /**
-   * Compute transform that fits world into screen while preserving aspect ratio (letterboxing).
+   * Compute transform that fits world into screen while preserving aspect ratio (letterbox).
    */
-  computeWorldTransform(worldWidth, worldHeight) {
-    const wW = Number.isFinite(worldWidth) && worldWidth > 0 ? worldWidth : this.width;
-    const wH = Number.isFinite(worldHeight) && worldHeight > 0 ? worldHeight : this.height;
-
-    const sx = this.width / wW;
-    const sy = this.height / wH;
+  computeWorldTransform(worldW, worldH) {
+    const sx = this.width / worldW;
+    const sy = this.height / worldH;
     this.scale = Math.min(sx, sy);
 
-    const drawW = wW * this.scale;
-    const drawH = wH * this.scale;
+    const drawW = worldW * this.scale;
+    const drawH = worldH * this.scale;
 
     this.offsetX = (this.width - drawW) / 2;
     this.offsetY = (this.height - drawH) / 2;
 
-    return { worldWidth: wW, worldHeight: wH };
-  }
-
-  /**
-   * Convert a screen (canvas CSS pixel) coordinate to world coordinate.
-   * Used for mapping pointer input.
-   */
-  screenToWorld(screenX, screenY) {
-    const x = (screenX - this.offsetX) / this.scale;
-    const y = (screenY - this.offsetY) / this.scale;
-    return { x, y };
+    return { worldWidth: worldW, worldHeight: worldH };
   }
 
   clear() {
-    // black background
-    this.ctx.fillStyle = "#000";
-    this.ctx.fillRect(0, 0, this.width, this.height);
+    const ctx = this.ctx;
+    ctx.save();
+    // Clear in CSS pixel space
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.restore();
   }
 
   drawBall(ball) {
     if (!ball) return;
     const ctx = this.ctx;
 
-    if (!Number.isFinite(ball.x) || !Number.isFinite(ball.y)) return;
-    const r = Number.isFinite(ball.r) ? ball.r : 18;
-
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
     ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  drawCursor(cursor) {
-    if (!cursor) return;
+  drawCursor(c) {
+    if (!c) return;
     const ctx = this.ctx;
 
-    const x = cursor.x;
-    const y = cursor.y;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const x = c.x;
+    const y = c.y;
 
-    const s = cursor.size || 6;
+    const s = 6; // size in world units (scaled by transform)
 
-    ctx.strokeStyle = "#fff";
-    // keep 1px-ish line in screen space even after scaling
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
     ctx.lineWidth = 1 / this.scale;
 
     ctx.beginPath();
@@ -110,17 +96,46 @@ export class Renderer {
     for (const c of cursors) this.drawCursor(c);
   }
 
+  /**
+   * Draw abyss line + labels in WORLD space.
+   * Styling is kept minimal, but text sizes are specified in screen pixels via 1/scale conversion.
+   */
   drawAbyssLine(y, worldWidth) {
     if (!Number.isFinite(y)) return;
     const ctx = this.ctx;
 
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    const RED = "rgba(255,60,60,0.78)";
+
+    // 1px line regardless of scaling
+    ctx.strokeStyle = RED;
     ctx.lineWidth = 1 / this.scale;
 
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(worldWidth, y);
     ctx.stroke();
+
+    // Text sizing in "screen px"
+    const fontPx = 11; // small
+    const fontWorld = fontPx / this.scale;
+
+    const padPx = 10;
+    const padWorld = padPx / this.scale;
+
+    // "ABYSS------" at the beginning of the line (on the line)
+    ctx.fillStyle = RED;
+    ctx.font = `${fontWorld}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ABYSS------", padWorld, y);
+
+    // Instruction above line, centered
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    const instruction = "Resist gravity. Move to guide. Hold to lift.";
+    const abovePx = 6;
+    const aboveWorld = abovePx / this.scale;
+    ctx.fillText(instruction, worldWidth / 2, y - aboveWorld);
   }
 
   /**
@@ -134,10 +149,11 @@ export class Renderer {
     const worldW = world && Number.isFinite(world.width) ? world.width : this.width;
     const worldH = world && Number.isFinite(world.height) ? world.height : this.height;
 
-    const { worldWidth, worldHeight } = this.computeWorldTransform(worldW, worldH);
+    const { worldWidth } = this.computeWorldTransform(worldW, worldH);
 
     const ctx = this.ctx;
     ctx.save();
+
     // Apply world -> screen transform
     ctx.translate(this.offsetX, this.offsetY);
     ctx.scale(this.scale, this.scale);
